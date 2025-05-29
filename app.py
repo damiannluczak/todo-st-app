@@ -61,7 +61,7 @@ def main():
             user = login_user(username, password)
             if user:
                 st.session_state.user = {"id": user["id"], "username": user["username"]}
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Nieprawidłowy login lub hasło.")
         return
@@ -74,7 +74,7 @@ def main():
     if st.button("Dodaj zadanie"):
         if title:
             add_task(user["id"], title, description)
-            st.experimental_rerun()
+            st.rerun()
 
     st.write("## Twoje zadania")
 
@@ -85,11 +85,11 @@ def main():
         with col1:
             if st.button("✔ Zrobione", key=f"done_{task['id']}"):
                 mark_done(task["id"])
-                st.experimental_rerun()
+                st.rerun()
         with col2:
             if st.button("Usuń", key=f"delete_{task['id']}"):
                 delete_task(task["id"])
-                st.experimental_rerun()
+                st.rerun()
 
     st.write("## Zrobione")
     done_tasks = get_tasks(user["id"], done=True)
@@ -98,7 +98,7 @@ def main():
 
     if st.button("🚪 Wyloguj"):
         del st.session_state.user
-        st.experimental_rerun()
+        st.rerun()
 
 if __name__ == "__main__":
     main()
