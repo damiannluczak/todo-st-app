@@ -1,120 +1,104 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, g, session, flash
+import streamlit as st
 import sqlite3
-import os
-from werkzeug.security import generate_password_hash, check_password_hash
+import hashlib
 
-app = Flask(__name__, instance_relative_config=True)
-app.secret_key = 'sekretnyklucz123'
-app.config.from_mapping(
-    DATABASE=os.path.join(app.instance_path, 'todo.db'),
-)
+# Funkcja do haszowania haseł
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(app.config['DATABASE'], detect_types=sqlite3.PARSE_DECLTYPES)
-        g.db.row_factory = sqlite3.Row
-    return g.db
+# Połączenie z bazą danych
+conn = sqlite3.connect('todo.db', check_same_thread=False)
+cursor = conn.cursor()
 
-@app.teardown_appcontext
-def close_db(exc):
-    db = g.pop('db', None)
-    if db:
-        db.close()
+# Sprawdzenie czy użytkownik istnieje i hasło się zgadza
+def login_user(username, password):
+    hashed_pw = hash_password(password)
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, hashed_pw))
+    return cursor.fetchone()
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        db = get_db()
-        username = request.form['username']
-        email = request.form.get('email', '')
-        password = request.form['password']
-        hashed_pw = generate_password_hash(password)
-        try:
-            db.execute("INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-                       (username, email, hashed_pw))
-            db.commit()
-            flash("Zarejestrowano pomyślnie.")
-            return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            flash("Użytkownik już istnieje.")
-    return render_template('register.html')
+# Pobierz zadania danego użytkownika
+def get_tasks(user_id, done=False):
+    cursor.execute("SELECT id, title, description FROM tasks WHERE user_id = ? AND done = ?", (user_id, int(done)))
+    return cursor.fetchall()
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        db = get_db()
-        username = request.form['username']
-        password = request.form['password']
-        user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        if user is None or not check_password_hash(user["password"], password):
-            flash("Nieprawidłowy login lub hasło.")
-            return render_template("login.html")
-        session['user_id'] = user['id']
-        session['username'] = user['username']
-        return redirect(url_for('index'))
-    return render_template('login.html')
+# Dodaj nowe zadanie
+def add_task(user_id, title, description):
+    cursor.execute("INSERT INTO tasks (title, description, user_id) VALUES (?, ?, ?)", (title, description, user_id))
+    conn.commit()
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
+# Oznacz zadanie jako zrobione
+def mark_task_done(task_id):
+    cursor.execute("UPDATE tasks SET done = 1 WHERE id = ?", (task_id,))
+    conn.commit()
 
-@app.route('/api/tasks/<int:user_id>', methods=['GET'])
-def api_get_tasks(user_id):
-    db = get_db()
-    tasks = db.execute('SELECT * FROM tasks WHERE user_id = ?', (user_id,)).fetchall()
-    return jsonify([dict(t) for t in tasks])
-
-@app.route('/api/tasks', methods=['POST'])
-def api_add_task():
-    data = request.get_json()
-    title = data.get('title')
-    desc = data.get('description', '')
-    user_id = data.get('user_id')
-    db = get_db()
-    db.execute('INSERT INTO tasks (title, description, user_id) VALUES (?, ?, ?)', (title, desc, user_id))
-    db.commit()
-    return jsonify({'status': 'ok'}), 201
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
-    db = get_db()
-    user_id = session['user_id']
-
-    if request.method == 'POST':
-        title = request.form['title']
-        desc = request.form.get('description', '')
-        if title:
-            db.execute('INSERT INTO tasks (title, description, user_id) VALUES (?, ?, ?)',
-                       (title, desc, user_id))
-            db.commit()
-        return redirect(url_for('index'))
-
-    tasks_todo = db.execute('SELECT * FROM tasks WHERE user_id = ? AND done = 0', (user_id,)).fetchall()
-    tasks_done = db.execute('SELECT * FROM tasks WHERE user_id = ? AND done = 1', (user_id,)).fetchall()
-    return render_template('index.html', tasks_todo=tasks_todo, tasks_done=tasks_done)
-
-@app.route('/done/<int:task_id>')
-def mark_done(task_id):
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    db = get_db()
-    db.execute('UPDATE tasks SET done = 1 WHERE id = ? AND user_id = ?', (task_id, session['user_id']))
-    db.commit()
-    return redirect(url_for('index'))
-
-@app.route('/delete/<int:task_id>', methods=['POST'])
+# Usuń zadanie
 def delete_task(task_id):
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    db = get_db()
-    db.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', (task_id, session['user_id']))
-    db.commit()
-    return redirect(url_for('index'))
+    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
 
-if __name__ == '__main__':
-    os.makedirs(app.instance_path, exist_ok=True)
-    app.run(host='0.0.0.0', port=5050, debug=True)
+# Główna logika
+def main():
+    st.set_page_config(page_title="ToDo App", layout="centered")
+    st.title("ToDo Lista Webowa")
+
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+
+    if not st.session_state.logged_in:
+        st.header("Zaloguj się")
+
+        username = st.text_input("Login")
+        password = st.text_input("Hasło", type="password")
+
+        if st.button("Zaloguj"):
+            user = login_user(username, password)
+            if user:
+                st.session_state.logged_in = True
+                st.session_state.user_id = user[0]
+                st.session_state.username = user[1]
+                st.success(f"Zalogowano jako {user[1]}")
+            else:
+                st.error("Nieprawidłowy login lub hasło.")
+        return
+
+    st.sidebar.title("Nawigacja")
+    page = st.sidebar.radio("Wybierz stronę", ["Moje zadania", "Wyloguj"])
+
+    if page == "Wyloguj":
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.username = None
+        st.experimental_rerun()
+
+    if page == "Moje zadania":
+        st.header(f"Zalogowany jako: {st.session_state.username}")
+        st.subheader("Dodaj nowe zadanie")
+
+        with st.form("add_task_form"):
+            title = st.text_input("Tytuł")
+            description = st.text_area("Opis")
+            submitted = st.form_submit_button("Dodaj zadanie")
+            if submitted and title:
+                add_task(st.session_state.user_id, title, description)
+                st.success("Dodano zadanie.")
+                st.rerun()
+
+        st.subheader("Zadania do wykonania")
+        tasks = get_tasks(st.session_state.user_id, done=False)
+        for task in tasks:
+            with st.expander(f"{task[1]} - {task[2]}"):
+                col1, col2 = st.columns(2)
+                if col1.button("Oznacz jako zrobione", key=f"done_{task[0]}"):
+                    mark_task_done(task[0])
+                    st.rerun()
+                if col2.button("Usuń", key=f"del_{task[0]}"):
+                    delete_task(task[0])
+                    st.rerun()
+
+        st.subheader("Zakończone zadania")
+        tasks_done = get_tasks(st.session_state.user_id, done=True)
+        for task in tasks_done:
+            st.markdown(f"✔️ {task[1]} - {task[2]}")
+
+if __name__ == "__main__":
+    main()

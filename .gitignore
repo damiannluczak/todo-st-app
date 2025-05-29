@@ -1,3 +1,5 @@
-__pycache__/
-instance/
 *.pyc
+__pycache__/
+.DS_Store
+.vscode/
+todo.db
