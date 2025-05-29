@@ -51,7 +51,7 @@ def delete_task(task_id):
 
 def main():
     st.set_page_config(page_title="ToDo App", page_icon="")
-    st.title("ToDo List (Streamlit Edition)")
+    st.title("ToDo List")
 
     if "user" not in st.session_state:
         st.subheader("Zaloguj się jako:")
