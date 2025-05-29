@@ -55,7 +55,8 @@ def main():
 
     if "user" not in st.session_state:
         st.subheader("Zaloguj się jako:")
-        st.text_area("demo users == login : demo1 password :demo1 // login : demo2 password :demo2")
+        st.markdown("demo users == login : demo1 password :demo1 \n"
+                    " login : demo2 password :demo2")
         username = st.text_input("Login")
         password = st.text_input("Hasło", type="password")
         if st.button("Zaloguj"):
